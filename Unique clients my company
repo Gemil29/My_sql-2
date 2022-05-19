@@ -1,0 +1,83 @@
+/*Календарь с метками периодов, прошлого и текущего года*/
+with current_calendar as (
+select 
+ dd_curr.CalculationPeriodNumberInYear as curr_campain,
+ dd_curr.CalculationPeriodNumber as curr_campainNamber
+from 
+[dmt].[DimCalculationPeriod] as dd_curr
+where 
+ cast( getdate() as date) between dd_curr.CalculationPeriodStart and DATEADD (DAY , -1 , dd_curr.[CalculationPeriodEnd]) -- Разобраться с изменением даты
+),
+
+calc_calendar as (
+ select 
+  dd_curr.CalculationPeriodNumber as curr_number,
+  concat ( dd_curr.CalculationPeriodYear , iif( dd_curr.CalculationPeriodNumberInYear < 10, N'_0' , N'_') , dd_curr.CalculationPeriodNumberInYear) as periodName,
+  N'byCampaign' AS campaignType
+ from 
+  dmt.DimCalculationPeriod as dd_curr , --,
+  current_calendar as cur_c
+ where
+  dd_curr.CalculationPeriodNumber between (cur_c.curr_campainNamber - 18 ) and (cur_c.curr_campainNamber - 1 )
+ union all
+ select 
+  dd_curr.CalculationPeriodNumber as curr_number,
+  N'currentYear' as periodName,
+  N'ByYear' AS campaignType
+ from 
+  dmt.DimCalculationPeriod as dd_curr , --,
+  current_calendar as cur_c
+ where
+  dd_curr.[CalculationPeriodNumber] between (cur_c.curr_campainNamber - 18 ) and (cur_c.curr_campainNamber - 1 )
+ union all
+ select 
+  dd_curr.[CalculationPeriodNumber] as curr_number,
+  N'previousYear' as periodName,
+  N'ByYear' AS campaignType
+ from 
+  dmt.DimCalculationPeriod as dd_curr ,
+  current_calendar as cur_c
+ where
+  dd_curr.CalculationPeriodNumber between (cur_c.curr_campainNamber - 36 ) and (cur_c.curr_campainNamber - 19 )
+)
+/* Выгрузка количества уникальных консов, на основе таблице выше */
+
+--select * from calc_calendar
+
+SELECT 
+ COUNT (DISTINCT oi.Consultant_id) as CountDistict ,
+ dg.fg0,
+ dg.fg1,
+ dg.fg2,
+ dg.fg3,
+ cc.periodName ,
+ cc.campaignType,
+
+ -- ds.CountryOwnerDP,
+ --promo.PromoName
+ 
+ GROUPING (dg.fg0) as fg0_subtotal,
+ GROUPING (dg.fg1) as fg1_subtotal,
+ GROUPING (dg.FG2) as fg2_subtotal,
+ GROUPING (dg.fg3) as fg3_subtotal
+
+FROM 
+ dwh.OrderItem as oi
+ INNER JOIN dmt.DimDate as dd on oi.OrderApprovedDate = dd.Date_
+ INNER JOIN dmt.dimGoods as dg on oi.Goods_id = dg.Goods_id 
+ INNER JOIN calc_calendar as cc on dd.PeriodNumber = cc.curr_number
+WHERE
+ oi.OrderType_id not in (select DocumentType_id from dwh.DocumentType where TypeCode in (N'RETURN', N'RETURN_FUTURE', N'PROMO_POOL' ))
+ and oi.store_id in (select store_id from dmt.dimstore where CountryOwnerDP = N'РФ')
+ --and dg.FG3 <> N'Пробники'
+-- and dg.FG3 <> N'Саше-ароматизаторы'
+ and oi.Promo_id not in (select dp.Promo_id from dmt.DimPromo as dp where dp.Gift = N'Да')
+
+GROUP BY  
+ cc.periodName ,
+ cc.campaignType,
+ rollup (
+ dg.fg0,
+ dg.fg1,
+ dg.fg2,
+ dg.fg3)
